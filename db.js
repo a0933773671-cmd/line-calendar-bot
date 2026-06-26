@@ -1,20 +1,29 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 
-const db = new Database(path.join(__dirname, 'calendar.db'));
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('railway.internal')
+    ? false
+    : { rejectUnauthorized: false },
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     TEXT NOT NULL,
-    title       TEXT NOT NULL,
-    date        TEXT NOT NULL,        -- YYYY-MM-DD
-    time        TEXT,                 -- HH:MM (optional)
-    note        TEXT,
-    remind_time TEXT,                 -- HH:MM 提前提醒時間
-    reminded    INTEGER DEFAULT 0,
-    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+async function init() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS events (
+      id          SERIAL PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      title       TEXT NOT NULL,
+      date        TEXT NOT NULL,
+      time        TEXT,
+      note        TEXT,
+      remind_time TEXT,
+      reminded    INTEGER DEFAULT 0,
+      created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  console.log('Database ready');
+}
 
-module.exports = db;
+init().catch(console.error);
+
+module.exports = pool;
