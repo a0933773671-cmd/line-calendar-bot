@@ -1,7 +1,7 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
 const cron = require('node-cron');
-const db = require('./db');
+const pool = require('./db');
 const { handleMessage } = require('./handler');
 
 const config = {
@@ -12,7 +12,6 @@ const config = {
 const client = new line.Client(config);
 const app = express();
 
-// Webhook endpoint
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(event => handleMessage(event, client)))
     .then(() => res.json({ status: 'ok' }))
@@ -30,17 +29,20 @@ cron.schedule('* * * * *', async () => {
   const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   const today = now.toISOString().slice(0, 10);
 
-  const reminders = db.prepare(`
-    SELECT * FROM events
-    WHERE date = ? AND remind_time = ? AND reminded = 0
-  `).all(today, hhmm);
-
-  for (const event of reminders) {
-    await client.pushMessage(event.user_id, {
-      type: 'text',
-      text: `⏰ 提醒：${event.title}\n📅 ${event.date} ${event.time || ''}\n📝 ${event.note || ''}`,
-    });
-    db.prepare('UPDATE events SET reminded = 1 WHERE id = ?').run(event.id);
+  try {
+    const res = await pool.query(
+      `SELECT * FROM events WHERE date=$1 AND remind_time=$2 AND reminded=0`,
+      [today, hhmm]
+    );
+    for (const event of res.rows) {
+      await client.pushMessage(event.user_id, {
+        type: 'text',
+        text: `⏰ 提醒：${event.title}\n📅 ${event.date} ${event.time || ''}\n📝 ${event.note || ''}`,
+      });
+      await pool.query('UPDATE events SET reminded=1 WHERE id=$1', [event.id]);
+    }
+  } catch (err) {
+    console.error('Cron error:', err);
   }
 });
 
